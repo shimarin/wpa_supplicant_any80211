@@ -1,0 +1,11 @@
+[Unit]
+Description=WPA supplicant daemon (Any WiFi interface version)
+Before=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wpa_supplicant_any80211
+
+[Install]
+WantedBy=multi-user.target
