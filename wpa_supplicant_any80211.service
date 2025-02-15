@@ -5,6 +5,7 @@ Wants=network.target
 
 [Service]
 Type=simple
+ExecStartPre=udevadm settle
 ExecStart=/usr/bin/wpa_supplicant_any80211
 
 [Install]
