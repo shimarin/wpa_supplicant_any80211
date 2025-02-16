@@ -1,9 +1,10 @@
 #include <unistd.h>
 
+#include <print>
 #include <filesystem>
 #include <argparse/argparse.hpp>
 
-std::string find_interface()
+std::optional<std::string> find_interface()
 {
     const std::filesystem::path sysfs("/sys/class/net");
     // get the first network interface which has "phy80211" subdirectory
@@ -14,23 +15,37 @@ std::string find_interface()
         }
     }
     // not found
-    throw std::runtime_error("No applicable WiFi interface found");
+    return std::nullopt;
 }
 
-void run(const std::filesystem::path& config, bool dry_run)
+std::string wait_for_interface(int interval = 5)
 {
-    auto interface = find_interface();
+    while (true) {
+        auto interface = find_interface();
+        if (interface) {
+            return *interface;
+        }
+        //else
+        sleep(interval);
+    }
+}
+
+void run(const std::filesystem::path& config, int interval, bool dry_run)
+{
+    auto interface = interval > 0? wait_for_interface() : find_interface();
+    if (!interface) {
+        throw std::runtime_error("No WiFi interface found");
+    }
 
     if (dry_run) {
-        std::cout << "wpa_supplicant -i" << interface 
-            << " -c" << config.string() << std::endl;
+        std::println("wpa_supplicant -i{} -c{}", *interface , config.string());
         return;
     }
 
     // else start wpa_supplicant
-    std::cout << "Using interface: " << interface << std::endl;
+    std::println("Using interface: {}", *interface);
     auto rst = execlp("wpa_supplicant", "wpa_supplicant", 
-        ("-i" + interface).c_str(), ("-c" + config.string()).c_str(), nullptr);
+        ("-i" + *interface).c_str(), ("-c" + config.string()).c_str(), nullptr);
     if (rst < 0) {
         throw std::runtime_error("Failed to start wpa_supplicant");
     }
@@ -42,6 +57,10 @@ int main(int argc, char* argv[])
     program.add_argument("config")
         .help("Interface to use")
         .default_value("/etc/wpa_supplicant/wpa_supplicant.conf");
+    program.add_argument("--wait", "-w")
+        .help("Wait interval for a WiFi interface to become available.")
+        .implicit_value(5);
+//        .scan<'i', int>();
     program.add_argument("--dry-run")
         .help("Print the interface name/command line and exit")
         .default_value(false)
@@ -50,15 +69,27 @@ int main(int argc, char* argv[])
     try {
         program.parse_args(argc, argv);
     } catch (const std::runtime_error& err) {
-        std::cout << err.what() << std::endl;
+        std::println("{}", err.what());
         std::cout << program;
         return 1;
     }
 
+    auto wait = program.present<int>("--wait");
+    if (wait) {
+        if (*wait <= 0) {
+            std::println(std::cerr, "Invalid wait interval");
+            return 1;
+        }
+        //else
+        std::println("Waiting for a WiFi interface to become available(Interval {} sec)", *wait);
+    }
+
     try {
-        run(program.get<std::string>("config"), program.get<bool>("--dry-run"));
+        run(program.get<std::string>("config"), 
+            wait.value_or(0),
+            program.get<bool>("--dry-run"));
     } catch (const std::exception& err) {
-        std::cout << err.what() << std::endl;
+        std::println(std::cerr, "{}", err.what());
         return 1;
     }
 
